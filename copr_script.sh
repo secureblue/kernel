@@ -1,12 +1,21 @@
-#!/bin/bash 
-set -eux
+#!/bin/bash
+
+# SPDX-FileCopyrightText: Copyright 2026 The Secureblue Authors
+#
+# SPDX-License-Identifier: MIT
+
+set -euxo pipefail
+
+build_dir="$(realpath ..)"
+readonly build_dir
 
 git clone https://src.fedoraproject.org/rpms/kernel.git
 cd kernel
 git checkout 2e968930313cc3bac8fb760b99cf3cdc68966ea1
 
-fedpkg sources
+readonly secureblue_buildid_version=2
 
+fedpkg sources
 
 configs_to_enable=(
   # https://www.kernelconfig.io/CONFIG_PROC_PAGE_MONITOR
@@ -58,7 +67,7 @@ configs_to_disable=(
   # HSR nodes have two ports and act as a bridge, which allows arranging
   # them into a ring or meshed structure without dedicated switches. This
   # is in contrast to the companion standard Parallel Redundancy Protocol (PRP),[1]
-  # with which HSR shares the operating principle. 
+  # with which HSR shares the operating principle.
   CONFIG_HSR
 
   # https://www.kernelconfig.io/CONFIG_NET_DSA
@@ -67,14 +76,14 @@ configs_to_disable=(
   CONFIG_NET_DSA
 
 
-  
+
   ############################################################
   ################# Kernel testing features ##################
   ############################################################
   # https://www.kernelconfig.io/CONFIG_X86_MCE_INJECT
   # Machine check injector support
   CONFIG_X86_MCE_INJECT
-  
+
   # https://www.kernelconfig.io/CONFIG_HWPOISON_INJECT
   # HWPoison pages injector
   CONFIG_HWPOISON_INJECT
@@ -136,7 +145,7 @@ configs_to_disable=(
   # HSDPA Broadband Wireless Data Card - Globe Trotter
   # Archaic wireless broadband card
   CONFIG_NOZOMI
-  
+
   # https://www.kernelconfig.io/CONFIG_RC_CORE
   # Remote Controller support
   CONFIG_RC_CORE
@@ -175,7 +184,7 @@ configs_to_disable=(
   # https://www.kernelconfig.io/CONFIG_BLK_DEV_FD
   # Normal floppy disk support
   CONFIG_BLK_DEV_FD
-  
+
   # https://www.kernelconfig.io/CONFIG_HID_PXRC
   # Support for PhoenixRC HID Flight Controller, a 8-axis flight controller.
   CONFIG_HID_PXRC
@@ -196,7 +205,7 @@ configs_to_disable=(
 
   # https://www.kernelconfig.io/CONFIG_GPIB
   # https://en.wikipedia.org/wiki/GPIB
-  # Enable support for GPIB cards and dongles. 
+  # Enable support for GPIB cards and dongles.
   CONFIG_GPIB
 )
 
@@ -208,8 +217,8 @@ for config_to_enable in "${configs_to_enable[@]}"; do
   echo "${config_to_enable}=y" >> kernel-local
 done
 
-SECUREBLUE_BUILDID_VERSION=2
-sed -i "s/^# define buildid .*\$/%define buildid .secureblue.${SECUREBLUE_BUILDID_VERSION}/" kernel.spec
+sed --sandbox -i \
+  -e "s/^# define buildid .*/%define buildid .secureblue.${secureblue_buildid_version}/" \
+  kernel.spec
 
-mv * ../..
-cd ../..
+mv ./* "${build_dir}"
