@@ -1,0 +1,41 @@
+From eb642f2a8c3943e6b0a375c390993cb8390ac81d Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 14:23:18 -0700
+Subject: [PATCH 06/29] security: openpax: add OPENPAX_SOFTMODE configuration
+ knob
+
+This configuration knob enables OpenPaX soft mode, wherein OpenPaX features will
+be disabled by default, with OpenPaX features only enforcing on binaries where
+OpenPaX has been explicitly configured.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ security/Kconfig.openpax | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/security/Kconfig.openpax b/security/Kconfig.openpax
+index 9ebbf5841..7a07386e1 100644
+--- a/security/Kconfig.openpax
++++ b/security/Kconfig.openpax
+@@ -12,6 +12,18 @@ config OPENPAX
+ 	  OpenPaX adds memory safety-related defenses to the kernel which
+ 	  reduce the risks posed by exploitable memory safety bugs.
+ 
++config OPENPAX_SOFTMODE
++	bool "Support PaX soft mode"
++	default y
++	help
++	  Enabling this option will allow you to configure OpenPaX
++	  features to run in soft mode.  In this mode, OpenPaX features
++	  will be disabled by default, only running on applications
++	  which explicitly enable them.
++	
++	  Soft mode can be enabled via the kernel.pax.softmode sysctl,
++	  or the pax_softmode=1 kernel command-line option.
++
+ config OPENPAX_XATTR_PAX_FLAGS
+ 	bool "Use filesystem extended attributes to modify OpenPaX features"
+ 	depends on OPENPAX
+-- 
+2.56.1
+

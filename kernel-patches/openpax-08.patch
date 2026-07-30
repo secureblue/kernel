@@ -1,0 +1,50 @@
+From 9967e1f8db15dda48f72e819dacd4776fe439e1c Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 14:34:34 -0700
+Subject: [PATCH 08/29] init: add pax_softmode= kernel command-line option
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ include/linux/init.h |  3 +++
+ init/main.c          | 11 +++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/include/linux/init.h b/include/linux/init.h
+index 6326c61e2..83aaf87d2 100644
+--- a/include/linux/init.h
++++ b/include/linux/init.h
+@@ -138,6 +138,9 @@ extern char __initdata boot_command_line[];
+ extern char *saved_command_line;
+ extern unsigned int saved_command_line_len;
+ extern unsigned int reset_devices;
++#ifdef CONFIG_OPENPAX_SOFTMODE
++extern int pax_softmode;
++#endif
+ 
+ /* used by init/main.c */
+ void setup_arch(char **);
+diff --git a/init/main.c b/init/main.c
+index 31f2bf549..f301d38e6 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -195,6 +195,17 @@ static int __init set_reset_devices(char *str)
+ 
+ __setup("reset_devices", set_reset_devices);
+ 
++#ifdef CONFIG_OPENPAX_SOFTMODE
++int pax_softmode;
++
++static int __init setup_pax_softmode(char *str)
++{
++	get_option(&str, &pax_softmode);
++	return 1;
++}
++__setup("pax_softmode=", setup_pax_softmode);
++#endif
++
+ static const char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
+ const char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", "TERM=linux", NULL, };
+ static const char *panic_later, *panic_param;
+-- 
+2.56.1
+

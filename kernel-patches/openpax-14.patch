@@ -1,0 +1,46 @@
+From 1064e07b4dca03b03f4ee2c7b627e08b7fd972dd Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 18:37:03 -0700
+Subject: [PATCH 14/29] proc: display PaX status in procfs status entries
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/proc/array.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index f6f75d206..4643cc1b2 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -435,6 +435,18 @@ __weak void arch_proc_pid_thread_features(struct seq_file *m,
+ {
+ }
+ 
++#ifdef CONFIG_OPENPAX
++static inline void task_pax(struct seq_file *m, struct mm_struct *mm)
++{
++	seq_printf(m, "PaX:\t%c%c%c%c%c\n",
++		   test_bit(PAXF_PAGEEXEC, &mm->pax_flags) ? 'P' : 'p',
++		   test_bit(PAXF_EMUTRAMP, &mm->pax_flags) ? 'E' : 'e',
++		   test_bit(PAXF_MPROTECT, &mm->pax_flags) ? 'M' : 'm',
++		   test_bit(PAXF_RANDMMAP, &mm->pax_flags) ? 'R' : 'r',
++		   test_bit(PAXF_SEGMEXEC, &mm->pax_flags) ? 'S' : 's');
++}
++#endif
++
+ int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
+ 			struct pid *pid, struct task_struct *task)
+ {
+@@ -451,6 +463,9 @@ int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
+ 		task_core_dumping(m, task);
+ 		task_thp_status(m, mm);
+ 		task_untag_mask(m, mm);
++#ifdef CONFIG_OPENPAX
++		task_pax(m, mm);
++#endif
+ 		mmput(mm);
+ 	}
+ 	task_sig(m, task);
+-- 
+2.56.1
+

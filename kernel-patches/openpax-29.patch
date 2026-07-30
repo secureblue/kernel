@@ -1,0 +1,48 @@
+From 6ef339b8da48199217c017cb81425ac262569f5a Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 30 Oct 2024 22:05:13 -0700
+Subject: [PATCH 29/29] init: provide pax_softmode symbol unconditionally
+
+Otherwise we have to add a bunch of #ifdefs when we otherwise
+would not need to.
+
+Fixes: a78588f6fc2f2 ("init: add pax_softmode= kernel command-line option")
+Fixes: https://github.com/edera-dev/linux-openpax/issues/1
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ include/linux/init.h | 2 --
+ init/main.c          | 2 +-
+ 2 files changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/include/linux/init.h b/include/linux/init.h
+index 83aaf87d2..89999a156 100644
+--- a/include/linux/init.h
++++ b/include/linux/init.h
+@@ -138,9 +138,7 @@ extern char __initdata boot_command_line[];
+ extern char *saved_command_line;
+ extern unsigned int saved_command_line_len;
+ extern unsigned int reset_devices;
+-#ifdef CONFIG_OPENPAX_SOFTMODE
+ extern int pax_softmode;
+-#endif
+ 
+ /* used by init/main.c */
+ void setup_arch(char **);
+diff --git a/init/main.c b/init/main.c
+index f301d38e6..80e9a015c 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -195,9 +195,9 @@ static int __init set_reset_devices(char *str)
+ 
+ __setup("reset_devices", set_reset_devices);
+ 
+-#ifdef CONFIG_OPENPAX_SOFTMODE
+ int pax_softmode;
+ 
++#ifdef CONFIG_OPENPAX_SOFTMODE
+ static int __init setup_pax_softmode(char *str)
+ {
+ 	get_option(&str, &pax_softmode);
+-- 
+2.56.1
+

@@ -1,0 +1,32 @@
+From ce35c2c5c998e4906299ef6517b36ff454a82db6 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 17:39:00 -0700
+Subject: [PATCH 11/29] elf: enable PAXF_RANDMMAP if randomize_va_space > 0
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/binfmt_elf.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
+index 85c5f6fa5..9d23d36a8 100644
+--- a/fs/binfmt_elf.c
++++ b/fs/binfmt_elf.c
+@@ -870,10 +870,13 @@ static int openpax_set_flags(struct file * const file)
+ #endif
+ 	current->mm->pax_flags = 0;
+ 
++	if (randomize_va_space) {
++		set_bit(PAXF_RANDMMAP, &current->mm->pax_flags);
++	}
++
+ 	if (!pax_softmode) {
+ 		set_bit(PAXF_PAGEEXEC, &current->mm->pax_flags);
+ 		set_bit(PAXF_MPROTECT, &current->mm->pax_flags);
+-		set_bit(PAXF_RANDMMAP, &current->mm->pax_flags);
+ 	}
+ 
+ #ifdef CONFIG_OPENPAX_XATTR_PAX_FLAGS
+-- 
+2.56.1
+

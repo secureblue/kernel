@@ -1,0 +1,28 @@
+From 168d65689f2d2fae14c2b96667568859ee5dcebf Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 17:40:54 -0700
+Subject: [PATCH 13/29] elf: allow executable stacks if PAXF_EMUTRAMP is
+ enabled
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/binfmt_elf.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
+index 8be8f020a..ecaadd8d8 100644
+--- a/fs/binfmt_elf.c
++++ b/fs/binfmt_elf.c
+@@ -1082,6 +1082,9 @@ static int load_elf_binary(struct linux_binprm *bprm)
+ 	retval = openpax_set_flags(bprm->file);
+ 	if (retval)
+ 		goto out_free_dentry;
++
++	if (!test_bit(PAXF_EMUTRAMP, &current->mm->pax_flags))
++		executable_stack = EXSTACK_DISABLE_X;
+ #endif
+ 
+ 	if (elf_read_implies_exec(*elf_ex, executable_stack)) {
+-- 
+2.56.1
+

@@ -1,0 +1,28 @@
+From 1a24932f38639a27d39502ca2c0f9ef73ffacd2c Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 14:29:45 -0700
+Subject: [PATCH 07/29] documentation: add pax_softmode= to kernel parameters
+ doc
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ Documentation/admin-guide/kernel-parameters.txt | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index 33cd30996..0cf1f7afe 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -5034,6 +5034,9 @@ Kernel parameters
+ 			the specified number of seconds.  This is to be used if
+ 			your oopses keep scrolling off the screen.
+ 
++	pax_softmode=<int>
++			Enables OpenPaX soft mode if set to a non-zero value.
++
+ 	pci=option[,option...]	[PCI,EARLY] various PCI subsystem options.
+ 
+ 				Some options herein operate on a specific device
+-- 
+2.56.1
+

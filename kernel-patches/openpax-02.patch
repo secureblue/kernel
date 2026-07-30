@@ -1,0 +1,80 @@
+From 70996d7baaeabb0196df7fb0cdccffc5947eac41 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Sun, 7 Jul 2024 14:28:03 -0700
+Subject: [PATCH 02/29] xattr: add support for retrieving PaX flags stored in
+ xattrs
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/xattr.c                 | 16 ++++++++++++++++
+ include/linux/xattr.h      |  4 ++++
+ include/uapi/linux/xattr.h |  5 +++++
+ 3 files changed, 25 insertions(+)
+
+diff --git a/fs/xattr.c b/fs/xattr.c
+index d58979115..74ed47182 100644
+--- a/fs/xattr.c
++++ b/fs/xattr.c
+@@ -447,6 +447,22 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
+ }
+ EXPORT_SYMBOL(__vfs_getxattr);
+ 
++#ifdef CONFIG_OPENPAX_XATTR_PAX_FLAGS
++ssize_t
++pax_getxattr(struct file *file, void *value, size_t size)
++{
++	struct inode *inode = file->f_path.dentry->d_inode;
++	ssize_t error;
++
++	error = inode_permission(file_mnt_idmap(file), inode, MAY_EXEC);
++	if (error)
++		return error;
++
++	return __vfs_getxattr(file->f_path.dentry, inode, XATTR_NAME_USER_PAX_FLAGS, value, size);
++}
++EXPORT_SYMBOL(pax_getxattr);
++#endif
++
+ ssize_t
+ vfs_getxattr(struct mnt_idmap *idmap, struct dentry *dentry,
+ 	     const char *name, void *value, size_t size)
+diff --git a/include/linux/xattr.h b/include/linux/xattr.h
+index 54ac3cbc1..add6707db 100644
+--- a/include/linux/xattr.h
++++ b/include/linux/xattr.h
+@@ -26,6 +26,7 @@
+ 
+ struct inode;
+ struct dentry;
++struct file;
+ 
+ static inline bool is_posix_acl_xattr(const char *name)
+ {
+@@ -76,6 +77,9 @@ struct xattr {
+ 	size_t value_len;
+ };
+ 
++#ifdef CONFIG_OPENPAX_XATTR_PAX_FLAGS
++ssize_t pax_getxattr(struct file *, void *, size_t);
++#endif
+ ssize_t __vfs_getxattr(struct dentry *, struct inode *, const char *, void *, size_t);
+ ssize_t vfs_getxattr(struct mnt_idmap *, struct dentry *, const char *,
+ 		     void *, size_t);
+diff --git a/include/uapi/linux/xattr.h b/include/uapi/linux/xattr.h
+index 2e5aef48f..8832f1d9d 100644
+--- a/include/uapi/linux/xattr.h
++++ b/include/uapi/linux/xattr.h
+@@ -92,5 +92,10 @@ struct xattr_args {
+ #define XATTR_POSIX_ACL_DEFAULT  "posix_acl_default"
+ #define XATTR_NAME_POSIX_ACL_DEFAULT XATTR_SYSTEM_PREFIX XATTR_POSIX_ACL_DEFAULT
+ 
++/* User namespace */
++#define XATTR_PAX_PREFIX "pax."
++#define XATTR_PAX_FLAGS_SUFFIX "flags"
++#define XATTR_NAME_USER_PAX_FLAGS XATTR_USER_PREFIX XATTR_PAX_PREFIX XATTR_PAX_FLAGS_SUFFIX
++#define XATTR_NAME_PAX_FLAGS XATTR_PAX_PREFIX XATTR_PAX_FLAGS_SUFFIX
+ 
+ #endif /* _UAPI_LINUX_XATTR_H */
+-- 
+2.56.1
+

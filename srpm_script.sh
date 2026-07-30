@@ -54,6 +54,14 @@ configs_to_enable=(
   # Sanity checks on notifier call chains, slight perf hit
   # in exchange for reduced kernel panics/oopses and dangling pointers
   CONFIG_DEBUG_NOTIFIERS
+
+  # Enable OpenPaX features. For details, see patches/openpax.
+  CONFIG_OPENPAX
+  CONFIG_OPENPAX_SOFTMODE
+  CONFIG_OPENPAX_XATTR_PAX_FLAGS
+  CONFIG_OPENPAX_MPROTECT
+  CONFIG_OPENPAX_EMUTRAMP
+  CONFIG_OPENPAX_EMUTRAMP_DEFAULT
 )
 
 configs_to_disable=(
@@ -122,7 +130,6 @@ configs_to_disable=(
   # Don't autoload line disciplines, already set by our sysctl
   CONFIG_LDISC_AUTOLOAD
 
-
   ############################################################
   ####### Features for mobile carriers / datacenters #########
   ############################################################
@@ -140,8 +147,8 @@ configs_to_disable=(
 
   # https://cateee.net/lkddb/web-lkddb/AF_KCM.html
   # Kernel Connection Multiplexor
-  # Has been the source of CVEs, appears to have little to no use outside of 
-  # datacenter applications. 
+  # Has been the source of CVEs, appears to have little to no use outside of
+  # datacenter applications.
   CONFIG_AF_KCM
 
   # https://www.kernelconfig.io/CONFIG_BAREUDP
@@ -332,7 +339,6 @@ configs_to_disable=(
   # Enables Firewire debugging over remote DMA
   CONFIG_PROVIDE_OHCI1394_DMA_INIT
 
-
   ############################################################
   ################# Unused ports and devices #################
   ############################################################
@@ -421,7 +427,6 @@ configs_to_disable=(
   # Enable support for GPIB cards and dongles.
   CONFIG_GPIB
 
-
   ############################################################
   ################# Attack surface reduction #################
   ############################################################
@@ -430,7 +435,7 @@ configs_to_disable=(
   CONFIG_DEVPORT
 
   # https://cateee.net/lkddb/web-lkddb/LIVEPATCH.html
-  # Attack surface, not useful with bootc 
+  # Attack surface, not useful with bootc
   CONFIG_LIVEPATCH
 
   # https://cateee.net/lkddb/web-lkddb/X86_IOPL_IOPERM.html
@@ -449,7 +454,7 @@ configs_to_disable=(
   # https://www.kernelconfig.io/CONFIG_DEVMEM
   # Provides support for the /dev/mem device, which can RW directly to memory
   CONFIG_DEVMEM
-  
+
   # https://cateee.net/lkddb/web-lkddb/STRICT_DEVMEM.html
   # https://cateee.net/lkddb/web-lkddb/IO_STRICT_DEVMEM.html
   # Fedora enables these but they depends on devmem, which we disable, so we must disable them too
@@ -538,7 +543,7 @@ configs_to_disable=(
   CONFIG_PARPORT
 
   # Legacy game port support
-  # And all joystick modules aside from xpad 
+  # And all joystick modules aside from xpad
   # https://cateee.net/lkddb/web-lkddb/GAMEPORT.html
   # Already blocked at runtime: https://github.com/secureblue/secureblue/blob/live/files/system/usr/lib/modprobe.d/secureblue.conf#L195
   CONFIG_GAMEPORT
@@ -580,11 +585,11 @@ configs_to_disable=(
 )
 
 for config_to_disable in "${configs_to_disable[@]}"; do
-  echo "# ${config_to_disable} is not set" >> kernel-local
+  echo "# ${config_to_disable} is not set" >>kernel-local
 done
 
 for config_to_enable in "${configs_to_enable[@]}"; do
-  echo "${config_to_enable}=y" >> kernel-local
+  echo "${config_to_enable}=y" >>kernel-local
 done
 
 sed --sandbox -i \
@@ -594,10 +599,13 @@ sed --sandbox -i \
 # Merge trusted-keys/* into secureblue-certs.pem. This gets appended to
 # certs/rhel.pem alongside Fedora's keys (see trusted-keys.patch), so they
 # all end up in CONFIG_SYSTEM_TRUSTED_KEYS and thus .builtin_trusted_keys.
-cat "${script_dir}"/trusted-keys/*.pem > secureblue-certs.pem
+cat "${script_dir}"/trusted-keys/*.pem >secureblue-certs.pem
 
-cp "${script_dir}/correct-spectre-flag-behavior.patch" .
+git apply "${script_dir}"/spec-patches/*.patch
 
-git apply "${script_dir}"/patches/*.patch
+mkdir secureblue-patches
+for patch_file in "${script_dir}"/kernel-patches/*.patch; do
+  cp "${patch_file}" "./secureblue-${patch_file##*/}"
+done
 
 mv ./* "${build_dir}"

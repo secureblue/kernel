@@ -1,0 +1,33 @@
+From b80c43d9ca55881f4d01ca3c9e9812b23c89fc97 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 14:53:05 -0700
+Subject: [PATCH 10/29] elf: only enable PaX features by default if softmode is
+ disabled
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/binfmt_elf.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
+index 22b14c649..85c5f6fa5 100644
+--- a/fs/binfmt_elf.c
++++ b/fs/binfmt_elf.c
+@@ -870,9 +870,11 @@ static int openpax_set_flags(struct file * const file)
+ #endif
+ 	current->mm->pax_flags = 0;
+ 
+-	set_bit(PAXF_PAGEEXEC, &current->mm->pax_flags);
+-	set_bit(PAXF_MPROTECT, &current->mm->pax_flags);
+-	set_bit(PAXF_RANDMMAP, &current->mm->pax_flags);
++	if (!pax_softmode) {
++		set_bit(PAXF_PAGEEXEC, &current->mm->pax_flags);
++		set_bit(PAXF_MPROTECT, &current->mm->pax_flags);
++		set_bit(PAXF_RANDMMAP, &current->mm->pax_flags);
++	}
+ 
+ #ifdef CONFIG_OPENPAX_XATTR_PAX_FLAGS
+ 	error = openpax_parse_xattr_flags(file);
+-- 
+2.56.1
+

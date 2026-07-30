@@ -1,0 +1,67 @@
+From c8a4f8305e2b119e2221222fc31709e4fa29299e Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Tue, 23 Jul 2024 12:31:58 -0700
+Subject: [PATCH 25/29] mmap: further improve randomization of brk(2) addresses
+
+This code mostly inspired by linux-hardened patch set.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ arch/x86/kernel/process.c | 4 ++--
+ mm/mmap.c                 | 7 +++++++
+ mm/util.c                 | 4 ++--
+ 3 files changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/kernel/process.c b/arch/x86/kernel/process.c
+index 346c438ac..26f884f70 100644
+--- a/arch/x86/kernel/process.c
++++ b/arch/x86/kernel/process.c
+@@ -1027,9 +1027,9 @@ unsigned long arch_align_stack(unsigned long sp)
+ unsigned long arch_randomize_brk(struct mm_struct *mm)
+ {
+ 	if (mmap_is_ia32())
+-		return randomize_page(mm->brk, SZ_32M);
++		return mm->brk + get_random_long() % SZ_32M + PAGE_SIZE;
+ 
+-	return randomize_page(mm->brk, SZ_1G);
++	return mm->brk + get_random_long() % SZ_1G + PAGE_SIZE;
+ }
+ 
+ /*
+diff --git a/mm/mmap.c b/mm/mmap.c
+index 4bf26b0f1..9caa66ca7 100644
+--- a/mm/mmap.c
++++ b/mm/mmap.c
+@@ -154,6 +154,13 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
+ 
+ 	newbrk = PAGE_ALIGN(brk);
+ 	oldbrk = PAGE_ALIGN(mm->brk);
++	/* properly handle unaligned min_brk as an empty heap */
++	if (min_brk & ~PAGE_MASK) {
++		if (brk == min_brk)
++			newbrk -= PAGE_SIZE;
++		if (mm->brk == min_brk)
++			oldbrk -= PAGE_SIZE;
++	}
+ 	if (oldbrk == newbrk) {
+ 		mm->brk = brk;
+ 		goto success;
+diff --git a/mm/util.c b/mm/util.c
+index bf0513d1d..c9d134c18 100644
+--- a/mm/util.c
++++ b/mm/util.c
+@@ -391,9 +391,9 @@ unsigned long __weak arch_randomize_brk(struct mm_struct *mm)
+ {
+ 	/* Is the current task 32bit ? */
+ 	if (!IS_ENABLED(CONFIG_64BIT) || is_compat_task())
+-		return randomize_page(mm->brk, SZ_32M);
++		return mm->brk + get_random_long() % SZ_32M + PAGE_SIZE;
+ 
+-	return randomize_page(mm->brk, SZ_1G);
++	return mm->brk + get_random_long() % SZ_1G + PAGE_SIZE;
+ }
+ 
+ unsigned long arch_mmap_rnd(void)
+-- 
+2.56.1
+
