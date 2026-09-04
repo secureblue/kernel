@@ -26,9 +26,23 @@ configs_to_enable=(
   # https://www.kernelconfig.io/CONFIG_PROC_PAGE_MONITOR
   # requires a value set since its parent gets disabled
   CONFIG_PROC_PAGE_MONITOR
+
+  # Enable control flow integrity.
+  CONFIG_CFI
+
+  # Normalizes the CFI tags for integer types across C and Rust.
+  # Needs to be enabled as Fedora sets CONFIG_RUST=y.
+  CONFIG_CFI_ICALL_NORMALIZE_INTEGERS
 )
 
 configs_to_disable=(
+  # Do not use FineIBT by default; use KCFI instead. Same as the cfi=kcfi karg.
+  # FineIBT has had a history of vulnerabilities and KCFI is more robust.
+  CONFIG_CFI_AUTO_DEFAULT
+
+  # Panic on CFI violations, as permissive mode is for development use only.
+  CONFIG_CFI_PERMISSIVE
+
   # https://www.kernelconfig.io/CONFIG_INFINIBAND
   # https://en.wikipedia.org/wiki/InfiniBand
   # InfiniBand support

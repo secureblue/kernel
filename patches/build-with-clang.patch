@@ -1,0 +1,13 @@
+diff --git a/kernel.spec b/kernel.spec
+index 2e03403..b31f680 100644
+--- a/kernel.spec
++++ b/kernel.spec
+@@ -13,7 +13,7 @@
+ %global _lto_cflags %{nil}
+
+ # Option to enable compiling with clang instead of gcc.
+-%bcond_with toolchain_clang
++%bcond_without toolchain_clang
+
+ %if %{with toolchain_clang}
+ %global toolchain clang
