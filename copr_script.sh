@@ -262,6 +262,14 @@ configs_to_disable=(
   CONFIG_KPROBE_EVENTS
   CONFIG_KPROBES_SANITY_TEST
 
+  # https://cateee.net/lkddb/web-lkddb/KGDB.html
+  # Kernel debuggger, enabled by fedora, depends on kprobe
+  CONFIG_KGDB_HONOUR_BLOCKLIST
+  CONFIG_KGDB_LOW_LEVEL_TRAP
+  CONFIG_KGDB_SERIAL_CONSOLE
+  CONFIG_KGDB_TESTS
+  CONFIG_KGDB
+
   # https://www.kernelconfig.io/CONFIG_PROC_KCORE
   # Exposes kernel text image layout in /proc/kcore
   CONFIG_PROC_KCORE
@@ -284,10 +292,22 @@ configs_to_disable=(
   # Kexec, already disabled via sysctl
   CONFIG_KEXEC
   CONFIG_KEXEC_FILE
+  CONFIG_KEXEC_HANDOVER_DEBUGFS
+  CONFIG_KEXEC_HANDOVER
+  CONFIG_KEXEC_JUMP
+
+  # https://cateee.net/lkddb/web-lkddb/LIVEUPDATE_MEMFD.html
+  # Depends on KEXEC, enabled by Fedora
+  CONFIG_LIVEUPDATE
+  CONFIG_LIVEUPDATE_MEMFD
 
   # https://cateee.net/lkddb/web-lkddb/CRASH_DUMP.html
   # Crash dump support for kernel debugging, depends on kexec
   CONFIG_CRASH_DUMP
+
+  # https://cateee.net/lkddb/web-lkddb/PRESERVE_FA_DUMP.html
+  # PPC only, build complains about this if crash dumps are disabled
+  CONFIG_PRESERVE_FA_DUMP
 
   # https://cateee.net/lkddb/web-lkddb/PROC_VMCORE.html
   # Used by kdump, a kernel debugging tool which depends on kexec
