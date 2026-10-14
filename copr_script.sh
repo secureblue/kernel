@@ -595,6 +595,8 @@ sed --sandbox -i \
 # all end up in CONFIG_SYSTEM_TRUSTED_KEYS and thus .builtin_trusted_keys.
 cat "${script_dir}"/trusted-keys/*.pem > secureblue-certs.pem
 
+cp "${script_dir}/correct-spectre-flag-behavior.patch" .
+
 git apply "${script_dir}"/patches/*.patch
 
 mv ./* "${build_dir}"

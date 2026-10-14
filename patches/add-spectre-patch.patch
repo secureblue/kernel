@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright 2026 The Secureblue Authors
+#
+# SPDX-License-Identifier: MIT
+
+--- a/kernel.spec
++++ b/kernel.spec
+@@ -1216,6 +1216,8 @@
+ Patch1: patch-%{patchversion}-redhat.patch
+ %endif
+ 
++Patch999998: correct-spectre-flag-behavior.patch
++
+ # empty final patch to facilitate testing of kernel patches
+ Patch999999: linux-kernel-test.patch
+ 
+@@ -2192,6 +2194,8 @@
+ ApplyOptionalPatch patch-%{patchversion}-redhat.patch
+ %endif
+ 
++ApplyPatch correct-spectre-flag-behavior.patch
++
+ ApplyOptionalPatch linux-kernel-test.patch
+ 
+ %{log_msg "End of patch applications"}
