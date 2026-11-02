@@ -17,6 +17,7 @@ defaults:
 
 jobs:
   setup:
+    name: Setup
     runs-on: ubuntu-26.04
     environment: Build
     outputs:
