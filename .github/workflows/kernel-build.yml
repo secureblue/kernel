@@ -166,7 +166,7 @@ jobs:
           rm -rf /host/*/*
           df -h /
           dnf update -y
-          dnf install rpm-build mock pesign nss-tools -y
+          dnf install rpm-build mock pesign nss-tools acl -y
 
       - name: Load key into pesign
         shell: bash
