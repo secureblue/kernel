@@ -16,11 +16,13 @@ defaults:
     shell: bash
 
 jobs:
-  kernel-build:
+  setup:
     runs-on: ubuntu-26.04
     environment: Build
-    permissions:
-      contents: write # required to push new releases
+    outputs:
+      need_build: ${{ steps.calculate_buildid.outputs.need_build }}
+      current_upstream_version_plus_release: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
+      secureblue_buildid_version: ${{ steps.calculate_buildid.outputs.secureblue_buildid_version }}
     steps:
       - name: Read env variables
         id: env_variables
@@ -70,40 +72,262 @@ jobs:
           echo "need_build=${need_build}" >> "${GITHUB_OUTPUT}"
           echo "secureblue_buildid_version=${secureblue_buildid_version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run build
-        id: build
-        timeout-minutes: 120
+      - name: Store versions in environment variables
+        id: store_versions
         if: steps.calculate_buildid.outputs.need_build == 'true'
         env:
           GH_TOKEN: ${{ secrets.VARS_TOKEN }} # has Environments RW
           CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
           SECUREBLUE_BUILDID_VERSION: ${{ steps.calculate_buildid.outputs.secureblue_buildid_version }}
-          COPR_WEBHOOK_URL: ${{ secrets.COPR_WEBHOOK_URL }}
         run: |
-          payload=$(jq -cn --arg buildid_version "${SECUREBLUE_BUILDID_VERSION}" '{"secureblue_buildid_version": $buildid_version | tonumber}')
           gh variable set UPSTREAM_KERNEL_VERSION --env Build --body "${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}" --repo "${GITHUB_REPOSITORY}"
           gh variable set SECUREBLUE_BUILDID_VERSION --env Build --body "${SECUREBLUE_BUILDID_VERSION}" --repo "${GITHUB_REPOSITORY}"
-          BUILD_ID=$(curl -fLsS --json "${payload}" "${COPR_WEBHOOK_URL}")
-          while true; do
-            state=$(curl -fLsS --retry 5 "https://copr.fedorainfracloud.org/api_3/build/${BUILD_ID}" | jq -r '.state')
-            if [[ "${state}" == "succeeded" ]]; then
-              echo "build_succeeded=true" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            
-            if [[ "${state}" =~ ^(canceled|skipped|failed)$ ]]; then
-              exit 1
-            fi
-            
-            sleep 60
-          done
 
-      - name: Create release
-        if: steps.build.outputs.build_succeeded == 'true'
+  buildsrpm:
+    name: Build SRPM
+    needs: setup
+    runs-on: "ubuntu-26.04"
+    if: needs.setup.outputs.need_build == 'true'
+    container:
+      image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+    steps:
+      - name: Enable egress auditing
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Build SRPM
+        shell: bash
+        id: srpm_build
         env:
-          GH_TOKEN: ${{ github.token }}
-          CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
-          SECUREBLUE_BUILDID_VERSION: ${{ steps.calculate_buildid.outputs.secureblue_buildid_version }}
+          BRANCH: ${{ github.ref_name }}
+          BUILD_SHA: ${{ github.sha }}
+          SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
         run: |
-          TAG="${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}.secureblue.${SECUREBLUE_BUILDID_VERSION}"
-          gh release create "${TAG}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+          dnf update -y
+          dnf install rpmbuild fedpkg git -y
+          git clone --branch "${BRANCH}" https://github.com/secureblue/kernel.git
+          git -C kernel checkout --detach "${BUILD_SHA}"
+          bash ./kernel/srpm_script.sh "${SECUREBLUE_BUILDID_VERSION}"
+          rpmbuild -bs -v --define "_sourcedir $PWD" --define "_rpmdir $PWD" --define "_builddir $PWD" --define "_specdir $PWD" --define "_srcrpmdir $PWD" kernel.spec
+          SRPM_HASH=$(sha256sum *.rpm)
+          echo "SRPM_HASH: ${SRPM_HASH}"
+
+      - name: Save SRPM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: srpm-artifact
+          path: "*.rpm"
+          compression-level: 0
+          retention-days: 30
+
+
+  buildrpm:
+    name: Build RPM
+    timeout-minutes: 300
+    needs: buildsrpm
+    environment: Build
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-26.04
+          - arch: aarch64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+      options: --privileged
+    steps:
+      - name: Enable egress auditing
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Retrieve SRPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: srpm-artifact
+
+      - name: Install deps
+        shell: bash
+        run: |
+          dnf update -y
+          dnf install rpm-build mock pesign nss-tools -y
+
+      - name: Load key into pesign
+        shell: bash
+        env:
+          SECUREBOOT_P12: ${{ secrets.SECUREBOOT_P12 }}
+        run: |
+          umask 077
+          printenv SECUREBOOT_P12 | base64 -d > secureboot.p12
+          pk12util -d /etc/pki/pesign -i secureboot.p12 -W ""
+          shred -u secureboot.p12
+          install -d -m 2770 -o pesign -g mock /run/pesign
+          pesign --daemonize
+
+      - name: Build RPM
+        shell: bash
+        id: rpm_build
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          useradd -G mock builder
+          chown builder .
+          echo "config_opts['plugin_conf']['bind_mount_opts']['dirs'].append(('/run/pesign', '/run/pesign'))" >> /etc/mock/site-defaults.cfg
+          runuser -u builder -- mock --resultdir=. -r "fedora-45-${ARCH}" --rebuild kernel-*.src.rpm \
+            --arch="${ARCH}" --define "pe_signing_cert secureblue" --define "pe_signing_token NSS Certificate DB"
+
+      - name: Surface build log
+        if: always()
+        run: |
+          cat build.log || echo "build.log not found"
+
+      - name: Upload log artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-logs-${{ matrix.arch }}
+          path: "*.log"
+          retention-days: 30
+
+      - name: Prepare for upload
+        shell: bash
+        run: |
+          rm kernel-*.src.rpm
+
+      - name: Save RPM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-artifact-${{ matrix.arch }}
+          path: "*.rpm"
+          compression-level: 0
+          retention-days: 7
+
+  # pushrpm:
+  #   name: Push RPM
+  #   runs-on: "ubuntu-26.04"
+  #   environment: Build
+  #   container:
+  #     image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+  #   needs: buildrpm
+  #   concurrency:
+  #     group: kernel-publish
+  #     cancel-in-progress: false
+  #   outputs:
+  #     hashes: ${{ steps.sign.outputs.hashes }}
+  #   steps:
+  #     - name: Enable egress auditing
+  #       uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+  #       with:
+  #         egress-policy: audit
+
+  #     - name: Retrieve RPM
+  #       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+  #       with:
+  #         merge-multiple: true
+  #         pattern: rpm-artifact-*
+
+  #     - name: Setup
+  #       shell: bash
+  #       env:
+  #         RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+  #       run: |
+  #         dnf install rpm-sign createrepo rclone -y
+  #         dnf update --refresh -y
+  #         echo "${RPM_SIGNING_KEY}" | gpg --import
+  #         echo "
+  #         %_signature gpg
+  #         %_gpg_name 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41
+  #         " > ~/.rpmmacros
+
+  #     - name: Acquire rpm repo lockfile
+  #       shell: bash
+  #       env:
+  #         RCLONE_CONFIG_R2_TYPE: s3
+  #         RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+  #         RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  #         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  #         RCLONE_CONFIG_R2_REGION: auto
+  #         RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+  #       run: |
+  #         echo 1 | rclone rcat R2:/release/lock --header-upload "If-None-Match: *"
+
+  #     - name: Sign
+  #       shell: bash
+  #       id: sign
+  #       run: |
+  #         kernel_rpm_file=$(ls | grep -E '^kernel-core-[0-9.]+-[0-9]+\.secureblue\.[0-9]+\.fc[0-9]+\.(x86_64|aarch64)\.rpm$')
+  #         if [[ -z "$kernel_rpm_file" ]]; then
+  #           echo "kernel RPM not found"
+  #           exit 1
+  #         else
+  #           echo "kernel RPM found: ${kernel_rpm_file}"
+  #         fi
+
+  #         rpm --addsign *.rpm
+  #         rpm_hash=$(sha256sum *.rpm | base64 -w0)
+  #         echo "hashes=${rpm_hash}" >> "$GITHUB_OUTPUT"
+  #         mkdir -p secureblue/Packages
+  #         mv *.rpm secureblue/Packages
+  #         cd secureblue
+  #         createrepo .
+  #         mergerepo --all --omit-baseurl --noupdateinfo --repo "${PWD}" --repo https://repo.secureblue.dev -o ../merged
+  #         rm -rf repodata
+  #         mv ../merged/repodata repodata
+  #         gpg --detach-sign --local-user 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41 --armor repodata/repomd.xml
+
+  #     - name: Upload RPM and logs to R2 to rpm Bucket
+  #       shell: bash
+  #       env:
+  #         RCLONE_CONFIG_R2_TYPE: s3
+  #         RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+  #         RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  #         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  #         RCLONE_CONFIG_R2_REGION: auto
+  #         RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+  #         SOURCE_DIR: .
+  #       run: |
+  #         rclone copy ./secureblue/ R2:/
+
+  #     - name: Release rpm repo lockfile
+  #       shell: bash
+  #       env:
+  #         RCLONE_CONFIG_R2_TYPE: s3
+  #         RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+  #         RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  #         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  #         RCLONE_CONFIG_R2_REGION: auto
+  #         RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+  #       run: |
+  #         rclone deletefile R2:/release/lock
+
+  # release:
+  #   name: Release
+  #   needs: [setup, pushrpm]
+  #   runs-on: ubuntu-26.04
+  #   permissions:
+  #     contents: write # required to push new releases
+  #   steps:
+  #     - name: Create release
+  #       env:
+  #         GH_TOKEN: ${{ github.token }}
+  #         CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ needs.setup.outputs.current_upstream_version_plus_release }}
+  #         SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
+  #       run: |
+  #         TAG="${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}.secureblue.${SECUREBLUE_BUILDID_VERSION}"
+  #         gh release create "${TAG}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+
+  # provenance:
+  #   needs: [setup, pushrpm, release]
+  #   permissions:
+  #     actions: read # To read the workflow path.
+  #     id-token: write # To sign the provenance.
+  #     contents: write # To add assets to a release.
+  #   uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+  #   with:
+  #     base64-subjects: ${{ needs.pushrpm.outputs.hashes }}
+  #     upload-assets: true
+  #     upload-tag-name: ${{ needs.setup.outputs.current_upstream_version_plus_release }}.secureblue.${{ needs.setup.outputs.secureblue_buildid_version }}
+  #     provenance-name: multiple.intoto.jsonl

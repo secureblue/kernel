@@ -6,9 +6,10 @@
 
 set -euxo pipefail
 
-build_dir="$(realpath ..)"
+build_dir="$(pwd)"
 readonly build_dir
 
+cd kernel
 script_dir="$(pwd)"
 readonly script_dir
 
@@ -16,8 +17,7 @@ git clone https://src.fedoraproject.org/rpms/kernel.git
 cd kernel
 git checkout f45
 
-# https://docs.copr.fedorainfracloud.org/user_documentation.html#webhooks
-secureblue_buildid_version=$(jq -r '.secureblue_buildid_version' "${build_dir}/hook_payload")
+secureblue_buildid_version="${1}"
 readonly secureblue_buildid_version
 
 fedpkg sources
