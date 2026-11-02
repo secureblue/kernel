@@ -177,7 +177,7 @@ jobs:
           printenv SECUREBOOT_P12 | base64 -d > secureboot.p12
           pk12util -d /etc/pki/pesign -i secureboot.p12 -W ""
           shred -u secureboot.p12
-          install -d -m 2770 -o pesign -g mock /run/pesign
+          install -d -m 0770 -o pesign -g mock /run/pesign
           pesign --daemonize
 
       - name: Build RPM
@@ -188,6 +188,9 @@ jobs:
         run: |
           useradd -G mock builder
           chown builder .
+          # https://github.com/fedora-infra/ansible/blob/main/roles/bkernel/tasks/main.yml#L43
+          setfacl -m u:builder:rwx /run/pesign
+          setfacl -m u:builder:rw /run/pesign/socket
           echo "config_opts['plugin_conf']['bind_mount_opts']['dirs'].append(('/run/pesign', '/run/pesign'))" >> /etc/mock/site-defaults.cfg
           runuser -u builder -- mock --resultdir=. -r "fedora-45-${ARCH}" --rebuild kernel-*.src.rpm \
             --arch="${ARCH}" --define "pe_signing_cert secureblue" --define "pe_signing_token NSS Certificate DB"
