@@ -106,7 +106,7 @@ jobs:
         run: |
           dnf update -y
           dnf install rpmbuild fedpkg git -y
-          git clone --branch "${BRANCH}" https://github.com/secureblue/kernel.git
+          git clone --branch "${BRANCH}" https://github.com/RoyalOughtness/kernel.git
           git -C kernel checkout --detach "${BUILD_SHA}"
           bash ./kernel/srpm_script.sh "${SECUREBLUE_BUILDID_VERSION}"
           rpmbuild -bs -v --define "_sourcedir $PWD" --define "_rpmdir $PWD" --define "_builddir $PWD" --define "_specdir $PWD" --define "_srcrpmdir $PWD" kernel.spec
