@@ -187,7 +187,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           useradd -G mock builder
-          chown builder .
+          chown -R builder .
           # https://github.com/fedora-infra/ansible/blob/main/roles/bkernel/tasks/main.yml#L43
           setfacl -m u:builder:rwx /run/pesign
           setfacl -m u:builder:rw /run/pesign/socket
