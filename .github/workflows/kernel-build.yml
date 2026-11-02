@@ -138,6 +138,14 @@ jobs:
     container:
       image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
       options: --privileged
+    volumes:
+      - /usr/local/lib/android:/host/android
+      - /usr/local/.ghcup:/host/ghcup
+      - /opt/hostedtoolcache:/host/toolcache
+      - /usr/share/dotnet:/host/dotnet
+      - /usr/share/swift:/host/swift
+      - /usr/lib/jvm:/host/jvm
+      - /usr/local/share/powershell:/host/powershell
     steps:
       - name: Enable egress auditing
         uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
@@ -149,9 +157,12 @@ jobs:
         with:
           name: srpm-artifact
 
-      - name: Install deps
+      - name: Install deps and free host space
         shell: bash
-        run: |
+        run: |          
+          df -h /
+          rm -rf /host/*/*
+          df -h /
           dnf update -y
           dnf install rpm-build mock pesign nss-tools -y
 
