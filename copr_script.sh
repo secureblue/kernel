@@ -14,7 +14,7 @@ readonly script_dir
 
 git clone https://src.fedoraproject.org/rpms/kernel.git
 cd kernel
-git checkout f44
+git checkout f45
 
 # https://docs.copr.fedorainfracloud.org/user_documentation.html#webhooks
 secureblue_buildid_version=$(jq -r '.secureblue_buildid_version' "${build_dir}/hook_payload")

@@ -35,7 +35,7 @@ jobs:
       - name: Get upstream version
         id: get_upstream_version
         run: |
-          curl -fLsS --retry 5 -o kernel.spec https://src.fedoraproject.org/rpms/kernel/raw/f44/f/kernel.spec
+          curl -fLsS --retry 5 -o kernel.spec https://src.fedoraproject.org/rpms/kernel/raw/f45/f/kernel.spec
           version=$(rpmspec -P kernel.spec | awk '$1 == "Version:" { print $2; exit }')
           release=$(rpmspec -P kernel.spec | awk '$1 == "Release:" { print $2; exit }')
           if [[ -z "${version}" || -z "${release}" ]]; then
