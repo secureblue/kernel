@@ -4,7 +4,11 @@ on:
   schedule:
     - cron: "5 */6 * * *" # every 6 hours
   workflow_dispatch:
-
+    inputs:
+      debug_kernels:
+        description: Build debug kernels
+        type: boolean
+        default: false
 concurrency:
   group: kernel-build
   cancel-in-progress: false
@@ -16,11 +20,15 @@ defaults:
     shell: bash
 
 jobs:
-  kernel-build:
+  setup:
+    name: Setup
     runs-on: ubuntu-26.04
     environment: Build
-    permissions:
-      contents: write # required to push new releases
+    outputs:
+      need_build: ${{ steps.calculate_buildid.outputs.need_build }}
+      current_upstream_version_plus_release: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
+      secureblue_buildid_version: ${{ steps.calculate_buildid.outputs.secureblue_buildid_version }}
+      upstream_commit: ${{ steps.get_upstream_version.outputs.upstream_commit }}
     steps:
       - name: Read env variables
         id: env_variables
@@ -35,14 +43,17 @@ jobs:
       - name: Get upstream version
         id: get_upstream_version
         run: |
-          curl -fLsS --retry 5 -o kernel.spec https://src.fedoraproject.org/rpms/kernel/raw/f45/f/kernel.spec
-          version=$(rpmspec -P kernel.spec | awk '$1 == "Version:" { print $2; exit }')
-          release=$(rpmspec -P kernel.spec | awk '$1 == "Release:" { print $2; exit }')
+          git clone --branch f45 https://src.fedoraproject.org/rpms/kernel.git
+          upstream_commit="$(git -C kernel rev-parse HEAD)"
+          version=$(rpmspec -P kernel/kernel.spec | awk '$1 == "Version:" { print $2; exit }')
+          release=$(rpmspec -P kernel/kernel.spec | awk '$1 == "Release:" { print $2; exit }')
           if [[ -z "${version}" || -z "${release}" ]]; then
             echo "failed to parse kernel.spec"
             exit 1
           fi
+
           echo "current_upstream_version_plus_release=${version}-${release}" >> "${GITHUB_OUTPUT}"
+          echo "upstream_commit=${upstream_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Calculate buildid
         id: calculate_buildid
@@ -53,7 +64,7 @@ jobs:
           CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
         run: |
           need_build=false
-          
+
           if [[ "${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}" != "${STORED_UPSTREAM}" ]]; then
           # Upstream kernel version mismatch, reset our buildid version to 1
             need_build=true
@@ -70,40 +81,308 @@ jobs:
           echo "need_build=${need_build}" >> "${GITHUB_OUTPUT}"
           echo "secureblue_buildid_version=${secureblue_buildid_version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run build
-        id: build
-        timeout-minutes: 120
-        if: steps.calculate_buildid.outputs.need_build == 'true'
+  buildsrpm:
+    name: Build SRPM
+    needs: setup
+    runs-on: "ubuntu-26.04"
+    if: needs.setup.outputs.need_build == 'true'
+    permissions:
+      contents: read # checkout
+    container:
+      image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: kernel
+          persist-credentials: false
+
+      - name: Build SRPM
+        id: srpm_build
+        env:
+          SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
+          UPSTREAM_COMMIT: ${{ needs.setup.outputs.upstream_commit }}
+        run: |
+          dnf update -y
+          dnf install rpmbuild fedpkg git -y
+          bash ./kernel/srpm_script.sh "${SECUREBLUE_BUILDID_VERSION}" "${UPSTREAM_COMMIT}"
+          rpmbuild -bs -v --define "_sourcedir $PWD" --define "_rpmdir $PWD" --define "_builddir $PWD" --define "_specdir $PWD" --define "_srcrpmdir $PWD" kernel.spec
+          SRPM_HASH=$(sha256sum *.rpm)
+          echo "SRPM_HASH: ${SRPM_HASH}"
+          cp "kernel/trusted-keys/secureblue secureboot key.pem" secureboot-cert.pem
+
+      - name: Save SRPM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: srpm-artifact
+          path: |
+            *.rpm
+            secureboot-cert.pem
+          compression-level: 0
+          retention-days: 30
+
+
+  buildrpm:
+    name: Build RPM
+    timeout-minutes: 300
+    needs: buildsrpm
+    environment: Build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-26.04
+          - arch: aarch64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+      options: --privileged
+      volumes:
+        - /usr/local/lib/android:/host/android
+        - /usr/local/.ghcup:/host/ghcup
+        - /opt/hostedtoolcache:/host/toolcache
+        - /usr/share/dotnet:/host/dotnet
+        - /usr/share/swift:/host/swift
+        - /usr/lib/jvm:/host/jvm
+        - /usr/local/share/powershell:/host/powershell
+    steps:
+      - name: Retrieve SRPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: srpm-artifact
+
+      - name: Install deps and free host space
+        run: |
+          df -h /
+          rm -rf /host/*/*
+          df -h /
+          dnf update -y
+          dnf install rpm-build mock pesign nss-tools acl -y
+
+      - name: Load key into pesign
+        env:
+          SECUREBOOT_P12: ${{ secrets.SECUREBOOT_P12 }}
+        run: |
+          umask 077
+          printenv SECUREBOOT_P12 | base64 -d > secureboot.p12
+          pk12util -d /etc/pki/pesign -i secureboot.p12 -W ""
+          shred -u secureboot.p12
+          install -d -m 0770 -o pesign -g mock /run/pesign
+          pesign --daemonize
+
+      - name: Build RPM
+        id: rpm_build
+        env:
+          ARCH: ${{ matrix.arch }}
+          DEBUG_KERNELS: ${{ inputs.debug_kernels }}
+        run: |
+          useradd -G mock builder
+          chown -R builder .
+          # https://github.com/fedora-infra/ansible/blob/main/roles/bkernel/tasks/main.yml#L43
+          setfacl -m u:builder:rwx /run/pesign
+          setfacl -m u:builder:rw /run/pesign/socket
+          echo "config_opts['plugin_conf']['bind_mount_opts']['dirs'].append(('/run/pesign', '/run/pesign'))" >> /etc/mock/site-defaults.cfg
+          build_args=(--resultdir=. -r "fedora-45-${ARCH}" --arch="${ARCH}" --define "pe_signing_cert secureblue" --define "pe_signing_token NSS Certificate DB")
+          if [[ "${DEBUG_KERNELS}" != "true" ]]; then
+            build_args+=(--without debug)
+          fi
+          runuser -u builder -- mock "${build_args[@]}" --calculate-build-dependencies --no-cleanup-after kernel-*.src.rpm
+          unshare --net -- runuser -u builder -- mock "${build_args[@]}" --offline --no-clean --rebuild kernel-*.src.rpm
+
+      - name: Verify sb sig
+        run: |
+          dnf install sbsigntools cpio -y
+          rpm2cpio kernel-core-*.rpm | cpio -id
+          sbverify --cert secureboot-cert.pem lib/modules/*/vmlinuz
+
+      - name: Surface build log
+        if: always()
+        run: |
+          cat build.log || echo "build.log not found"
+
+      - name: Upload log artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-logs-${{ matrix.arch }}
+          path: "*.log"
+          retention-days: 30
+
+      - name: Prepare for upload
+        run: |
+          rm kernel-*.src.rpm
+
+      - name: Save RPM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-artifact-${{ matrix.arch }}
+          path: "*.rpm"
+          compression-level: 0
+          retention-days: 7
+
+  pushrpm:
+    name: Push RPM
+    runs-on: "ubuntu-26.04"
+    environment: Publish
+    container:
+      image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+    needs: [ buildrpm, setup ]
+    concurrency:
+      group: kernel-publish
+      cancel-in-progress: false
+    outputs:
+      hashes: ${{ steps.sign.outputs.hashes }}
+    steps:
+      - name: Retrieve RPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          merge-multiple: true
+          pattern: rpm-artifact-*
+
+      - name: Retrieve SRPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: srpm-artifact
+
+      - name: Setup
+        env:
+          RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+        run: |
+          dnf install rpm-sign createrepo rclone gh -y
+          dnf update --refresh -y
+          echo "${RPM_SIGNING_KEY}" | gpg --import
+          echo "
+          %_signature gpg
+          %_gpg_name 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41
+          " > ~/.rpmmacros
+
+      - name: Acquire rpm repo lockfile
+        id: acquire_lock
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_REGION: auto
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          echo 1 | rclone rcat R2:/release/lock --header-upload "If-None-Match: *"
+
+      - name: Sign
+        id: sign
+        run: |
+          kernel_rpm_file=""
+          filename_pattern='^kernel-core-[0-9.]+-[0-9]+\.secureblue\.[0-9]+\.fc[0-9]+\.(x86_64|aarch64)\.rpm$'
+          for rpm_file in *.rpm; do
+            if [[ "${rpm_file}" =~ ${filename_pattern} ]]; then
+              kernel_rpm_file="${rpm_file}"
+              break
+            fi
+          done
+          if [[ -z "$kernel_rpm_file" ]]; then
+            echo "kernel RPM not found"
+            exit 1
+          else
+            echo "kernel RPM found: ${kernel_rpm_file}"
+          fi
+
+          rpm --addsign *.rpm
+          rpm_hash=$(sha256sum *.rpm | base64 -w0)
+          echo "hashes=${rpm_hash}" >> "$GITHUB_OUTPUT"
+          mkdir -p secureblue/Packages
+          mv *.rpm secureblue/Packages
+          cd secureblue
+          createrepo .
+          mergerepo --all --omit-baseurl --noupdateinfo --repo "${PWD}" --repo https://repo.secureblue.dev -o ../merged
+          rm -rf repodata
+          mv ../merged/repodata repodata
+          gpg --detach-sign --local-user 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41 --armor repodata/repomd.xml
+
+      - name: Store versions in environment variables
         env:
           GH_TOKEN: ${{ secrets.VARS_TOKEN }} # has Environments RW
-          CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
-          SECUREBLUE_BUILDID_VERSION: ${{ steps.calculate_buildid.outputs.secureblue_buildid_version }}
-          COPR_WEBHOOK_URL: ${{ secrets.COPR_WEBHOOK_URL }}
+          CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ needs.setup.outputs.current_upstream_version_plus_release }}
+          SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
         run: |
-          payload=$(jq -cn --arg buildid_version "${SECUREBLUE_BUILDID_VERSION}" '{"secureblue_buildid_version": $buildid_version | tonumber}')
           gh variable set UPSTREAM_KERNEL_VERSION --env Build --body "${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}" --repo "${GITHUB_REPOSITORY}"
           gh variable set SECUREBLUE_BUILDID_VERSION --env Build --body "${SECUREBLUE_BUILDID_VERSION}" --repo "${GITHUB_REPOSITORY}"
-          BUILD_ID=$(curl -fLsS --json "${payload}" "${COPR_WEBHOOK_URL}")
-          while true; do
-            state=$(curl -fLsS --retry 5 "https://copr.fedorainfracloud.org/api_3/build/${BUILD_ID}" | jq -r '.state')
-            if [[ "${state}" == "succeeded" ]]; then
-              echo "build_succeeded=true" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            
-            if [[ "${state}" =~ ^(canceled|skipped|failed)$ ]]; then
-              exit 1
-            fi
-            
-            sleep 60
-          done
+
+      - name: Upload RPM and logs to R2 to rpm Bucket
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_REGION: auto
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          SOURCE_DIR: .
+        run: |
+          rclone copy ./secureblue/ R2:/
+
+      - name: Release rpm repo lockfile
+        if: always() && steps.acquire_lock.outcome == 'success'
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_REGION: auto
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          rclone deletefile R2:/release/lock
+
+  provenance:
+    needs: pushrpm
+    permissions:
+      actions: read # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: read # To read the release contents
+    uses: slsa-framework/actions/.github/workflows/attest_actions.yml@v0.2.0 # zizmor: ignore[unpinned-uses]
+    with:
+      build-from-source: false
+      # renovate: datasource=github-releases depName=slsa-framework/attester
+      version: v0.1.1
+      watch-jobs: pushrpm
+      collect-artifacts: false
+      base64-subjects: ${{ needs.pushrpm.outputs.hashes }}
+
+  release:
+    name: Release
+    needs: [ setup, provenance ]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write # required to push new releases
+    steps:
+      - name: Retrieve provenance
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: slsa-attestations
 
       - name: Create release
-        if: steps.build.outputs.build_succeeded == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
-          SECUREBLUE_BUILDID_VERSION: ${{ steps.calculate_buildid.outputs.secureblue_buildid_version }}
+          CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ needs.setup.outputs.current_upstream_version_plus_release }}
+          SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
         run: |
           TAG="${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}.secureblue.${SECUREBLUE_BUILDID_VERSION}"
-          gh release create "${TAG}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+          gh release create "${TAG}" provenance.intoto.json --target "${GITHUB_SHA}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+
+
+  notify-failure:
+    name: Notify Discord webhook of failure
+    if: failure()
+    needs: [setup, buildsrpm, buildrpm, pushrpm, release, provenance]
+    runs-on: ubuntu-26.04
+    environment: Notify
+    steps:
+      - name: Notify Discord webhook of build failure
+        env:
+          WORKFLOW_NAME: ${{ github.workflow }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\": \"Build **${WORKFLOW_NAME}** failed on branch \`${BRANCH_NAME}\`: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "${DISCORD_WEBHOOK}"
