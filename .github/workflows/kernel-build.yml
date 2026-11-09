@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       debug_kernels:
-        description: uild debug kernels
+        description: Build debug kernels
         type: boolean
         default: false
 concurrency:
@@ -94,6 +94,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: kernel
           persist-credentials: false
 
       - name: Build SRPM
@@ -272,11 +273,11 @@ jobs:
       - name: Sign
         id: sign
         run: |
-          kernel_rpm_found=false
+          kernel_rpm_file=""
           filename_pattern='^kernel-core-[0-9.]+-[0-9]+\.secureblue\.[0-9]+\.fc[0-9]+\.(x86_64|aarch64)\.rpm$'
           for rpm_file in *.rpm; do
             if [[ "${rpm_file}" =~ ${filename_pattern} ]]; then
-              kernel_rpm_found=true
+              kernel_rpm_file="${rpm_file}"
               break
             fi
           done
@@ -338,13 +339,14 @@ jobs:
       actions: read # To read the workflow path.
       id-token: write # To sign the provenance.
       contents: read # To read the release contents
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses]
+    uses: slsa-framework/actions/.github/workflows/attest_actions.yml@v0.2.0 # zizmor: ignore[unpinned-uses]
     with:
       build-from-source: false
       # renovate: datasource=github-releases depName=slsa-framework/attester
       version: v0.1.1
       watch-jobs: pushrpm
       collect-artifacts: false
+      base64-subjects: ${{ needs.pushrpm.outputs.hashes }}
 
   release:
     name: Release
