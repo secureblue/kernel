@@ -164,12 +164,6 @@ jobs:
           install -d -m 0770 -o pesign -g mock /run/pesign
           pesign --daemonize
 
-      - name: Verify sb sig
-        run: |
-          dnf install sbsigntools cpio -y
-          rpm2cpio kernel-core-*.rpm | cpio -id 
-          sbverify --cert "secureblue secureboot key.pem" lib/modules/*/vmlinuz
-
       - name: Build RPM
         id: rpm_build
         env:
@@ -183,6 +177,12 @@ jobs:
           echo "config_opts['plugin_conf']['bind_mount_opts']['dirs'].append(('/run/pesign', '/run/pesign'))" >> /etc/mock/site-defaults.cfg
           runuser -u builder -- mock --resultdir=. -r "fedora-45-${ARCH}" --rebuild kernel-*.src.rpm \
             --arch="${ARCH}" --define "pe_signing_cert secureblue" --define "pe_signing_token NSS Certificate DB"
+
+      - name: Verify sb sig
+        run: |
+          dnf install sbsigntools cpio -y
+          rpm2cpio kernel-core-*.rpm | cpio -id 
+          sbverify --cert "secureblue secureboot key.pem" lib/modules/*/vmlinuz
 
       - name: Surface build log
         if: always()
@@ -322,7 +322,7 @@ jobs:
           SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
         run: |
           TAG="${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}.secureblue.${SECUREBLUE_BUILDID_VERSION}"
-          gh release create "${TAG}" --target "${GITHUB_SHA}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+          gh release create "${TAG}" kernel-*.src.rpm --target "${GITHUB_SHA}" --generate-notes --repo "${GITHUB_REPOSITORY}"
 
   provenance:
     needs: [ setup, pushrpm, release ]
@@ -342,6 +342,7 @@ jobs:
     if: failure()
     needs: [setup, buildsrpm, buildrpm, pushrpm, release, provenance]
     runs-on: ubuntu-26.04
+    environment: Build
     steps:
       - name: Notify Discord webhook of build failure
         env:
@@ -352,4 +353,3 @@ jobs:
           curl -H "Content-Type: application/json" \
             -d "{\"content\": \"Build **${WORKFLOW_NAME}** failed on branch \`${BRANCH_NAME}\`: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
             "${DISCORD_WEBHOOK}"
-  
