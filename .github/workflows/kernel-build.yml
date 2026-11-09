@@ -221,129 +221,129 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  # pushrpm:
-  #   name: Push RPM
-  #   runs-on: "ubuntu-26.04"
-  #   environment: Build
-  #   container:
-  #     image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
-  #   needs: buildrpm
-  #   concurrency:
-  #     group: kernel-publish
-  #     cancel-in-progress: false
-  #   outputs:
-  #     hashes: ${{ steps.sign.outputs.hashes }}
-  #   steps:
-  #     - name: Enable egress auditing
-  #       uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-  #       with:
-  #         egress-policy: audit
+  pushrpm:
+    name: Push RPM
+    runs-on: "ubuntu-26.04"
+    environment: Build
+    container:
+      image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
+    needs: buildrpm
+    concurrency:
+      group: kernel-publish
+      cancel-in-progress: false
+    outputs:
+      hashes: ${{ steps.sign.outputs.hashes }}
+    steps:
+      - name: Enable egress auditing
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
 
-  #     - name: Retrieve RPM
-  #       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-  #       with:
-  #         merge-multiple: true
-  #         pattern: rpm-artifact-*
+      - name: Retrieve RPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          merge-multiple: true
+          pattern: rpm-artifact-*
 
-  #     - name: Setup
-  #       shell: bash
-  #       env:
-  #         RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
-  #       run: |
-  #         dnf install rpm-sign createrepo rclone -y
-  #         dnf update --refresh -y
-  #         echo "${RPM_SIGNING_KEY}" | gpg --import
-  #         echo "
-  #         %_signature gpg
-  #         %_gpg_name 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41
-  #         " > ~/.rpmmacros
+      - name: Setup
+        shell: bash
+        env:
+          RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+        run: |
+          dnf install rpm-sign createrepo rclone -y
+          dnf update --refresh -y
+          echo "${RPM_SIGNING_KEY}" | gpg --import
+          echo "
+          %_signature gpg
+          %_gpg_name 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41
+          " > ~/.rpmmacros
 
-  #     - name: Acquire rpm repo lockfile
-  #       shell: bash
-  #       env:
-  #         RCLONE_CONFIG_R2_TYPE: s3
-  #         RCLONE_CONFIG_R2_PROVIDER: Cloudflare
-  #         RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-  #         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-  #         RCLONE_CONFIG_R2_REGION: auto
-  #         RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-  #       run: |
-  #         echo 1 | rclone rcat R2:/release/lock --header-upload "If-None-Match: *"
+      - name: Acquire rpm repo lockfile
+        shell: bash
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_REGION: auto
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          echo 1 | rclone rcat R2:/release/lock --header-upload "If-None-Match: *"
 
-  #     - name: Sign
-  #       shell: bash
-  #       id: sign
-  #       run: |
-  #         kernel_rpm_file=$(ls | grep -E '^kernel-core-[0-9.]+-[0-9]+\.secureblue\.[0-9]+\.fc[0-9]+\.(x86_64|aarch64)\.rpm$')
-  #         if [[ -z "$kernel_rpm_file" ]]; then
-  #           echo "kernel RPM not found"
-  #           exit 1
-  #         else
-  #           echo "kernel RPM found: ${kernel_rpm_file}"
-  #         fi
+      - name: Sign
+        shell: bash
+        id: sign
+        run: |
+          kernel_rpm_file=$(ls | grep -E '^kernel-core-[0-9.]+-[0-9]+\.secureblue\.[0-9]+\.fc[0-9]+\.(x86_64|aarch64)\.rpm$')
+          if [[ -z "$kernel_rpm_file" ]]; then
+            echo "kernel RPM not found"
+            exit 1
+          else
+            echo "kernel RPM found: ${kernel_rpm_file}"
+          fi
 
-  #         rpm --addsign *.rpm
-  #         rpm_hash=$(sha256sum *.rpm | base64 -w0)
-  #         echo "hashes=${rpm_hash}" >> "$GITHUB_OUTPUT"
-  #         mkdir -p secureblue/Packages
-  #         mv *.rpm secureblue/Packages
-  #         cd secureblue
-  #         createrepo .
-  #         mergerepo --all --omit-baseurl --noupdateinfo --repo "${PWD}" --repo https://repo.secureblue.dev -o ../merged
-  #         rm -rf repodata
-  #         mv ../merged/repodata repodata
-  #         gpg --detach-sign --local-user 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41 --armor repodata/repomd.xml
+          rpm --addsign *.rpm
+          rpm_hash=$(sha256sum *.rpm | base64 -w0)
+          echo "hashes=${rpm_hash}" >> "$GITHUB_OUTPUT"
+          mkdir -p secureblue/Packages
+          mv *.rpm secureblue/Packages
+          cd secureblue
+          createrepo .
+          mergerepo --all --omit-baseurl --noupdateinfo --repo "${PWD}" --repo https://repo.secureblue.dev -o ../merged
+          rm -rf repodata
+          mv ../merged/repodata repodata
+          gpg --detach-sign --local-user 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41 --armor repodata/repomd.xml
 
-  #     - name: Upload RPM and logs to R2 to rpm Bucket
-  #       shell: bash
-  #       env:
-  #         RCLONE_CONFIG_R2_TYPE: s3
-  #         RCLONE_CONFIG_R2_PROVIDER: Cloudflare
-  #         RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-  #         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-  #         RCLONE_CONFIG_R2_REGION: auto
-  #         RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-  #         SOURCE_DIR: .
-  #       run: |
-  #         rclone copy ./secureblue/ R2:/
+      - name: Upload RPM and logs to R2 to rpm Bucket
+        shell: bash
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_REGION: auto
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          SOURCE_DIR: .
+        run: |
+          rclone copy ./secureblue/ R2:/
 
-  #     - name: Release rpm repo lockfile
-  #       shell: bash
-  #       env:
-  #         RCLONE_CONFIG_R2_TYPE: s3
-  #         RCLONE_CONFIG_R2_PROVIDER: Cloudflare
-  #         RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-  #         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-  #         RCLONE_CONFIG_R2_REGION: auto
-  #         RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-  #       run: |
-  #         rclone deletefile R2:/release/lock
+      - name: Release rpm repo lockfile
+        shell: bash
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_REGION: auto
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          rclone deletefile R2:/release/lock
 
-  # release:
-  #   name: Release
-  #   needs: [setup, pushrpm]
-  #   runs-on: ubuntu-26.04
-  #   permissions:
-  #     contents: write # required to push new releases
-  #   steps:
-  #     - name: Create release
-  #       env:
-  #         GH_TOKEN: ${{ github.token }}
-  #         CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ needs.setup.outputs.current_upstream_version_plus_release }}
-  #         SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
-  #       run: |
-  #         TAG="${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}.secureblue.${SECUREBLUE_BUILDID_VERSION}"
-  #         gh release create "${TAG}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+  release:
+    name: Release
+    needs: [setup, pushrpm]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write # required to push new releases
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_UPSTREAM_VERSION_PLUS_RELEASE: ${{ needs.setup.outputs.current_upstream_version_plus_release }}
+          SECUREBLUE_BUILDID_VERSION: ${{ needs.setup.outputs.secureblue_buildid_version }}
+        run: |
+          TAG="${CURRENT_UPSTREAM_VERSION_PLUS_RELEASE}.secureblue.${SECUREBLUE_BUILDID_VERSION}"
+          gh release create "${TAG}" --generate-notes --repo "${GITHUB_REPOSITORY}"
 
-  # provenance:
-  #   needs: [setup, pushrpm, release]
-  #   permissions:
-  #     actions: read # To read the workflow path.
-  #     id-token: write # To sign the provenance.
-  #     contents: write # To add assets to a release.
-  #   uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-  #   with:
-  #     base64-subjects: ${{ needs.pushrpm.outputs.hashes }}
-  #     upload-assets: true
-  #     upload-tag-name: ${{ needs.setup.outputs.current_upstream_version_plus_release }}.secureblue.${{ needs.setup.outputs.secureblue_buildid_version }}
-  #     provenance-name: multiple.intoto.jsonl
+  provenance:
+    needs: [setup, pushrpm, release]
+    permissions:
+      actions: read # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To add assets to a release.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses]
+    with:
+      base64-subjects: ${{ needs.pushrpm.outputs.hashes }}
+      upload-assets: true
+      upload-tag-name: ${{ needs.setup.outputs.current_upstream_version_plus_release }}.secureblue.${{ needs.setup.outputs.secureblue_buildid_version }}
+      provenance-name: multiple.intoto.jsonl
