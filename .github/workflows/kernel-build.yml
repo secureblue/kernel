@@ -176,13 +176,13 @@ jobs:
           setfacl -m u:builder:rw /run/pesign/socket
           echo "config_opts['plugin_conf']['bind_mount_opts']['dirs'].append(('/run/pesign', '/run/pesign'))" >> /etc/mock/site-defaults.cfg
           build_args=(--resultdir=. -r "fedora-45-${ARCH}" --arch="${ARCH}" --define "pe_signing_cert secureblue" --define "pe_signing_token NSS Certificate DB")
-          runuser -u builder -- mock "${build_args[@]}" --installdeps kernel-*.src.rpm
+          runuser -u builder -- mock "${build_args[@]}" --calculate-build-dependencies --no-cleanup-after kernel-*.src.rpm
           unshare --net -- runuser -u builder -- mock "${build_args[@]}" --offline --no-clean --rebuild kernel-*.src.rpm
 
       - name: Verify sb sig
         run: |
           dnf install sbsigntools cpio -y
-          rpm2cpio kernel-core-*.rpm | cpio -id 
+          rpm2cpio kernel-core-*.rpm | cpio -id
           sbverify --cert secureboot-cert.pem lib/modules/*/vmlinuz
 
       - name: Surface build log
