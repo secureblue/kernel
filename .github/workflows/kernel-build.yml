@@ -182,7 +182,7 @@ jobs:
         run: |
           dnf install sbsigntools cpio -y
           rpm2cpio kernel-core-*.rpm | cpio -id 
-          sbverify --cert "secureblue secureboot key.pem" lib/modules/*/vmlinuz
+          sbverify --cert secureboot-cert.pem lib/modules/*/vmlinuz
 
       - name: Surface build log
         if: always()
@@ -315,6 +315,11 @@ jobs:
     permissions:
       contents: write # required to push new releases
     steps:
+      - name: Retrieve SRPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: srpm-artifact
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
