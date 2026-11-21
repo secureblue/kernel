@@ -255,7 +255,9 @@ jobs:
           limactl start default
           lima uname -r | grep secureblue
           lima sudo /usr/libexec/kselftests/run_kselftest.sh -s -f | tee kselftest.log
-          grep '^# Totals' kselftest.log >> "${GITHUB_STEP_SUMMARY}"
+          kselftest_totals="$(grep '^# Totals' kselftest.log)"
+          echo "${kselftest_totals}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "::notice title=kselftest::${kselftest_totals}"
 
   pushrpm:
     name: Push RPM
