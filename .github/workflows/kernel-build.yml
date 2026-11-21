@@ -171,7 +171,7 @@ jobs:
           if [[ "${EVENT_NAME}" == "pull_request" ]]; then
             openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=secureblue test key/" -keyout key.pem -out cert.pem
             openssl pkcs12 -export -name secureblue -inkey key.pem -in cert.pem -passout pass: -out secureboot.p12
-           else
+          else
              printenv SECUREBOOT_P12 | base64 -d > secureboot.p12
           fi
           pk12util -d /etc/pki/pesign -i secureboot.p12 -W ""
