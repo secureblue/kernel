@@ -3,7 +3,7 @@ name: kernel-build
 on:
   schedule:
     - cron: "5 */6 * * *" # every 6 hours
-  pull_request
+  pull_request:
   workflow_dispatch:
     inputs:
       debug_kernels:
