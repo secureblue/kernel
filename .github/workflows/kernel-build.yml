@@ -249,7 +249,10 @@ jobs:
       - name: Run selftests
         run: |
           limactl start -y --name=default template:fedora-45
-          lima sudo dnf install -y kernel-*.x86_64.rpm
+          lima sudo dnf install -y kernel-*.x86_64.rpm \
+            bc conntrack-tools dropwatch ethtool iperf3 iptables-utils ipvsadm lldpad ndisc6 \
+            net-tools netperf netsniff-ng packetdrill smcroute socat tcpdump teamd traceroute \
+            which wireshark-cli
           lima sudo sh -c 'grubby --set-default /boot/vmlinuz-*.secureblue.*.x86_64'
           limactl stop default
           limactl start default
