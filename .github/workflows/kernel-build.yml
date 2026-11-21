@@ -3,6 +3,7 @@ name: kernel-build
 on:
   schedule:
     - cron: "5 */6 * * *" # every 6 hours
+  pull_request
   workflow_dispatch:
     inputs:
       debug_kernels:
@@ -10,8 +11,8 @@ on:
         type: boolean
         default: false
 concurrency:
-  group: kernel-build
-  cancel-in-progress: false
+  group: kernel-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
