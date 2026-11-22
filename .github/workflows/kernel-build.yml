@@ -3,6 +3,7 @@ name: kernel-build
 on:
   schedule:
     - cron: "5 */6 * * *" # every 6 hours
+  pull_request:
   workflow_dispatch:
     inputs:
       debug_kernels:
@@ -10,8 +11,8 @@ on:
         type: boolean
         default: false
 concurrency:
-  group: kernel-build
-  cancel-in-progress: false
+  group: kernel-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
@@ -23,7 +24,7 @@ jobs:
   setup:
     name: Setup
     runs-on: ubuntu-26.04
-    environment: Build
+    environment: ${{ github.event_name == 'pull_request' && 'TestBuild' || 'Build' }}
     outputs:
       need_build: ${{ steps.calculate_buildid.outputs.need_build }}
       current_upstream_version_plus_release: ${{ steps.get_upstream_version.outputs.current_upstream_version_plus_release }}
@@ -31,6 +32,7 @@ jobs:
       upstream_commit: ${{ steps.get_upstream_version.outputs.upstream_commit }}
     steps:
       - name: Read env variables
+        if: github.event_name != 'pull_request'
         id: env_variables
         env:
           GH_TOKEN: ${{ secrets.VARS_TOKEN }} # has Environments RW
@@ -126,7 +128,7 @@ jobs:
     name: Build RPM
     timeout-minutes: 300
     needs: buildsrpm
-    environment: Build
+    environment: ${{ github.event_name == 'pull_request' && 'TestBuild' || 'Build' }}
     strategy:
       fail-fast: false
       matrix:
@@ -159,14 +161,20 @@ jobs:
           rm -rf /host/*/*
           df -h /
           dnf update -y
-          dnf install rpm-build mock pesign nss-tools acl -y
+          dnf install rpm-build mock pesign nss-tools acl openssl -y
 
       - name: Load key into pesign
         env:
           SECUREBOOT_P12: ${{ secrets.SECUREBOOT_P12 }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           umask 077
-          printenv SECUREBOOT_P12 | base64 -d > secureboot.p12
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=secureblue test key/" -keyout key.pem -out cert.pem
+            openssl pkcs12 -export -name secureblue -inkey key.pem -in cert.pem -passout pass: -out secureboot.p12
+          else
+             printenv SECUREBOOT_P12 | base64 -d > secureboot.p12
+          fi
           pk12util -d /etc/pki/pesign -i secureboot.p12 -W ""
           shred -u secureboot.p12
           install -d -m 0770 -o pesign -g mock /run/pesign
@@ -192,6 +200,7 @@ jobs:
           unshare --net -- runuser -u builder -- mock "${build_args[@]}" --offline --no-clean --rebuild kernel-*.src.rpm
 
       - name: Verify sb sig
+        if: github.event_name != 'pull_request'
         run: |
           dnf install sbsigntools cpio -y
           rpm2cpio kernel-core-*.rpm | cpio -id
@@ -222,10 +231,42 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  kernel-selftests:
+    name: Run kernel tests
+    needs: buildrpm
+    runs-on: ubuntu-26.04
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Retrieve RPM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rpm-artifact-x86_64
+
+      - uses: lima-vm/lima-actions/setup@55627e31b78637bf254a8b2a14da8ea7d12564e5 # v1.1.0
+
+      - name: Run selftests
+        run: |
+          limactl start -y --name=default template:fedora-45
+          lima sudo dnf install -y kernel-*.x86_64.rpm \
+            bc conntrack-tools dropwatch ethtool iperf3 iptables-utils ipvsadm lldpad ndisc6 \
+            net-tools netperf netsniff-ng packetdrill smcroute socat tcpdump teamd traceroute \
+            which wireshark-cli
+          lima sudo sh -c 'grubby --set-default /boot/vmlinuz-*.secureblue.*.x86_64'
+          limactl stop default
+          limactl start default
+          lima uname -r | grep secureblue
+          lima sudo /usr/libexec/kselftests/run_kselftest.sh -s -f | tee kselftest.log
+          kselftest_totals="$(grep '^# Totals' kselftest.log)"
+          echo "${kselftest_totals}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "::notice title=kselftest::${kselftest_totals}"
+
   pushrpm:
     name: Push RPM
     runs-on: "ubuntu-26.04"
     environment: Publish
+    if: github.event_name != 'pull_request'
     container:
       image: "fedora:45@sha256:aacbc26b38361ba0cb3d10f268da40b61b36aed6ed6fe5831a35871636bedb06"
     needs: [ buildrpm, setup ]
@@ -372,7 +413,7 @@ jobs:
 
   notify-failure:
     name: Notify Discord webhook of failure
-    if: failure()
+    if: failure() && github.event_name != 'pull_request'
     needs: [setup, buildsrpm, buildrpm, pushrpm, release, provenance]
     runs-on: ubuntu-26.04
     environment: Notify
