@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: MIT
 
 diff --git a/kernel.spec b/kernel.spec
-index 2e03403..59594fe 100644
+index 9c0ef4637..f91089430 100644
 --- a/kernel.spec
 +++ b/kernel.spec
-@@ -1214,6 +1214,7 @@ Source3002: Patchlist.changelog
+@@ -1172,6 +1172,7 @@ Source3002: Patchlist.changelog
  Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
@@ -14,7 +14,7 @@ index 2e03403..59594fe 100644
 
  ## Patches needed for building this package
 
-@@ -2313,6 +2314,7 @@ cat secureboot.pem >> ../certs/rhel.pem
+@@ -2236,6 +2237,7 @@ cat secureboot.pem >> ../certs/rhel.pem
 
  openssl x509 -inform der -in %{ima_ca_cert} -out imaca.pem
  cat imaca.pem >> ../certs/rhel.pem

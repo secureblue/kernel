@@ -1,0 +1,88 @@
+From 41a1d91ce1bc7a42cd31032d18de2e90e2b98858 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Tue, 23 Jul 2024 12:34:17 -0700
+Subject: [PATCH 26/29] exec: randomize argument block location
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ mm/vma_exec.c                     | 4 ++++
+ mm/vma_internal.h                 | 1 +
+ tools/testing/vma/include/dup.h   | 3 +++
+ tools/testing/vma/include/stubs.h | 5 +++++
+ tools/testing/vma/main.c          | 1 +
+ 5 files changed, 14 insertions(+)
+
+diff --git a/mm/vma_exec.c b/mm/vma_exec.c
+index 586c52155..4fd518010 100644
+--- a/mm/vma_exec.c
++++ b/mm/vma_exec.c
+@@ -160,6 +160,10 @@ int create_init_stack_vma(struct mm_struct *mm, struct vm_area_struct **vmap,
+ 	mmap_write_unlock(mm);
+ 	*vmap = vma;
+ 	*top_mem_p = vma->vm_end - sizeof(void *);
++
++	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
++		*top_mem_p ^= get_random_u32() & ~PAGE_MASK;
++
+ 	return 0;
+ 
+ err:
+diff --git a/mm/vma_internal.h b/mm/vma_internal.h
+index 4d300e7bb..816e120cf 100644
+--- a/mm/vma_internal.h
++++ b/mm/vma_internal.h
+@@ -37,6 +37,7 @@
+ #include <linux/perf_event.h>
+ #include <linux/personality.h>
+ #include <linux/pfn.h>
++#include <linux/random.h>
+ #include <linux/rcupdate.h>
+ #include <linux/rmap.h>
+ #include <linux/rwsem.h>
+diff --git a/tools/testing/vma/include/dup.h b/tools/testing/vma/include/dup.h
+index 4c58487b7..f89d5d4c0 100644
+--- a/tools/testing/vma/include/dup.h
++++ b/tools/testing/vma/include/dup.h
+@@ -418,8 +418,11 @@ enum {
+  */
+ enum {
+ 	READ_IMPLIES_EXEC =	0x0400000,
++	ADDR_NO_RANDOMIZE =	0x0040000,
+ };
+ 
++extern int randomize_va_space;
++
+ struct vma_iterator {
+ 	struct ma_state mas;
+ };
+diff --git a/tools/testing/vma/include/stubs.h b/tools/testing/vma/include/stubs.h
+index d6136e19a..2ca910a7c 100644
+--- a/tools/testing/vma/include/stubs.h
++++ b/tools/testing/vma/include/stubs.h
+@@ -27,6 +27,11 @@ struct unmap_desc;
+ 
+ #define vma_policy(vma) NULL
+ 
++static inline u32 get_random_u32(void)
++{
++	return 0;
++}
++
+ #define down_write_nest_lock(sem, nest_lock)
+ 
+ #define data_race(expr) expr
+diff --git a/tools/testing/vma/main.c b/tools/testing/vma/main.c
+index 18338f5d2..381b9fb97 100644
+--- a/tools/testing/vma/main.c
++++ b/tools/testing/vma/main.c
+@@ -15,6 +15,7 @@
+ #include "tests/vma.c"
+ 
+ int sysctl_max_map_count __read_mostly = DEFAULT_MAX_MAP_COUNT;
++int randomize_va_space = 2;
+ 
+ /* Helper functions which utilise static kernel functions. */
+ 
+-- 
+2.56.1
+

@@ -1,0 +1,30 @@
+From d014617a35d727d39f492369fbade3f80df0c46e Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Mon, 15 Jul 2024 19:57:22 -0700
+Subject: [PATCH 15/29] elf: only test for PAXF_RANDMMAP if OPENPAX is enabled
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/binfmt_elf.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
+index ecaadd8d8..9c011d0aa 100644
+--- a/fs/binfmt_elf.c
++++ b/fs/binfmt_elf.c
+@@ -1095,7 +1095,11 @@ static int load_elf_binary(struct linux_binprm *bprm)
+ 	}
+ 
+ 	const int snapshot_randomize_va_space = READ_ONCE(randomize_va_space);
+-	if (!(current->personality & ADDR_NO_RANDOMIZE) && test_bit(PAXF_RANDMMAP, &current->mm->pax_flags))
++	if (!(current->personality & ADDR_NO_RANDOMIZE) && snapshot_randomize_va_space
++#ifdef CONFIG_OPENPAX
++	    && test_bit(PAXF_RANDMMAP, &current->mm->pax_flags)
++#endif
++	    )
+ 		current->flags |= PF_RANDOMIZE;
+ 
+ 	setup_new_exec(bprm);
+-- 
+2.56.1
+

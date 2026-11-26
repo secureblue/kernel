@@ -1,0 +1,31 @@
+From 2123d60d2473182804129ddd44e7a7c8ad08dc95 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Sun, 21 Jul 2024 17:38:29 -0700
+Subject: [PATCH 20/29] x86: fault: hook up stack trampoline emulator
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ arch/x86/mm/fault.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 996e408f8..7ac4eaae0 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1539,6 +1539,13 @@ void do_user_addr_fault(struct pt_regs *regs,
+ 	}
+ #endif
+ 
++#ifdef CONFIG_OPENPAX_EMUTRAMP
++	if (openpax_fault_is_trampoline(error_code, regs, address)) {
++		if (openpax_emulate_trampoline(regs))
++			return;
++	}
++#endif
++
+ 	if (!(flags & FAULT_FLAG_USER))
+ 		goto lock_mmap;
+ 
+-- 
+2.56.1
+

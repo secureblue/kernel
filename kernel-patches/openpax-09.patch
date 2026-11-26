@@ -1,0 +1,46 @@
+From ba8b05d5fccc8ab8d4804bfa00af8ea13e9bacd4 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Wed, 10 Jul 2024 14:51:47 -0700
+Subject: [PATCH 09/29] sysctl: wire up PaX softmode setting
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ kernel/sysctl.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/kernel/sysctl.c b/kernel/sysctl.c
+index f7b75985d..f5c9b9cd0 100644
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -1397,6 +1397,18 @@ int proc_do_static_key(const struct ctl_table *table, int dir,
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_OPENPAX_SOFTMODE
++static const struct ctl_table pax_table[] = {
++	{
++		.procname       = "softmode",
++		.data           = &pax_softmode,
++		.maxlen         = sizeof(int),
++		.mode           = 0600,
++		.proc_handler   = proc_dointvec,
++	},
++};
++#endif
++
+ static const struct ctl_table sysctl_subsys_table[] = {
+ #ifdef CONFIG_SYSCTL
+ 	{
+@@ -1446,6 +1458,9 @@ static const struct ctl_table sysctl_subsys_table[] = {
+ int __init sysctl_init_bases(void)
+ {
+ 	register_sysctl_init("kernel", sysctl_subsys_table);
++#ifdef CONFIG_OPENPAX_SOFTMODE
++	register_sysctl_init("kernel/pax", pax_table);
++#endif
+ 
+ 	return 0;
+ }
+-- 
+2.56.1
+

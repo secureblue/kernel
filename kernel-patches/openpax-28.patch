@@ -1,0 +1,65 @@
+From 683f37d09e2e72f4fa56c198a57cfe3fe7dfa8d0 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Fri, 13 Sep 2024 11:22:21 -0700
+Subject: [PATCH 28/29] elf: avoid double read of randomize_va_space in OpenPaX
+ flag setup
+
+Previously we would read randomize_va_space in openpax_setup_flags,
+and then again later after calling openpax_setup_flags.
+
+As randomize_va_space is a sysctl, its value can change at any time.
+Accordingly, snapshot randomize_va_space before calling
+openpax_set_flags and pass the snapshot value to openpax_set_flags.
+
+This resolves a minor race condition where one may be able to slightly
+weaken process ASLR by turning ASLR on or off during an exec call.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/binfmt_elf.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
+index 9c24daa94..84d7a2ecb 100644
+--- a/fs/binfmt_elf.c
++++ b/fs/binfmt_elf.c
+@@ -863,14 +863,14 @@ static int openpax_parse_xattr_flags(struct file * const file)
+ }
+ #endif
+ 
+-static int openpax_set_flags(struct file * const file)
++static int openpax_set_flags(struct file * const file, const int snapshot_randomize_va_space)
+ {
+ #ifdef CONFIG_OPENPAX_XATTR_PAX_FLAGS
+ 	int error;
+ #endif
+ 	current->mm->pax_flags = 0;
+ 
+-	if (randomize_va_space) {
++	if (snapshot_randomize_va_space) {
+ 		set_bit(PAXF_RANDMMAP, &current->mm->pax_flags);
+ 	}
+ 
+@@ -1082,8 +1082,10 @@ static int load_elf_binary(struct linux_binprm *bprm)
+ 	   may depend on the personality.  */
+ 	SET_PERSONALITY2(*elf_ex, &arch_state);
+ 
++	const int snapshot_randomize_va_space = READ_ONCE(randomize_va_space);
++
+ #ifdef CONFIG_OPENPAX
+-	retval = openpax_set_flags(bprm->file);
++	retval = openpax_set_flags(bprm->file, snapshot_randomize_va_space);
+ 	if (retval)
+ 		goto out_free_dentry;
+ 
+@@ -1096,7 +1098,6 @@ static int load_elf_binary(struct linux_binprm *bprm)
+ 	if (elf_read_implies_exec(*elf_ex, executable_stack))
+ 		current->personality |= READ_IMPLIES_EXEC;
+ 
+-	const int snapshot_randomize_va_space = READ_ONCE(randomize_va_space);
+ 	if (!(current->personality & ADDR_NO_RANDOMIZE) && snapshot_randomize_va_space
+ #ifdef CONFIG_OPENPAX
+ 	    && test_bit(PAXF_RANDMMAP, &current->mm->pax_flags)
+-- 
+2.56.1
+

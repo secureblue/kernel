@@ -1,0 +1,39 @@
+From 0c36f7e1f75ee81786ad13252ef3d80188fdccd6 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Sun, 21 Jul 2024 15:53:32 -0700
+Subject: [PATCH 17/29] elf: simplify executable stack logic
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ fs/binfmt_elf.c | 12 +++++-------
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
+index 9c011d0aa..a53c02615 100644
+--- a/fs/binfmt_elf.c
++++ b/fs/binfmt_elf.c
+@@ -1083,16 +1083,14 @@ static int load_elf_binary(struct linux_binprm *bprm)
+ 	if (retval)
+ 		goto out_free_dentry;
+ 
+-	if (!test_bit(PAXF_EMUTRAMP, &current->mm->pax_flags))
++	if (test_bit(PAXF_PAGEEXEC, &current->mm->pax_flags) || test_bit(PAXF_SEGMEXEC, &current->mm->pax_flags)) {
+ 		executable_stack = EXSTACK_DISABLE_X;
++		current->personality &= ~READ_IMPLIES_EXEC;
++	} else
+ #endif
+ 
+-	if (elf_read_implies_exec(*elf_ex, executable_stack)) {
+-#ifdef CONFIG_OPENPAX
+-		if (!test_bit(PAXF_MPROTECT, &current->mm->pax_flags))
+-#endif
+-			current->personality |= READ_IMPLIES_EXEC;
+-	}
++	if (elf_read_implies_exec(*elf_ex, executable_stack))
++		current->personality |= READ_IMPLIES_EXEC;
+ 
+ 	const int snapshot_randomize_va_space = READ_ONCE(randomize_va_space);
+ 	if (!(current->personality & ADDR_NO_RANDOMIZE) && snapshot_randomize_va_space
+-- 
+2.56.1
+

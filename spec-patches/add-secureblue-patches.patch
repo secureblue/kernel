@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright 2026 The Secureblue Authors
+#
+# SPDX-License-Identifier: MIT
+
+diff --git a/kernel.spec b/kernel.spec
+index 9c0ef4637..8fbcc4d74 100644
+--- a/kernel.spec
++++ b/kernel.spec
+@@ -1180,6 +1180,38 @@ Source4002: gating.yaml
+ Patch1: patch-%{patchversion}-redhat.patch
+ %endif
+
++Patch80001: secureblue-openpax-01.patch
++Patch80002: secureblue-openpax-02.patch
++Patch80003: secureblue-openpax-03.patch
++Patch80004: secureblue-openpax-04.patch
++Patch80005: secureblue-openpax-05.patch
++Patch80006: secureblue-openpax-06.patch
++Patch80007: secureblue-openpax-07.patch
++Patch80008: secureblue-openpax-08.patch
++Patch80009: secureblue-openpax-09.patch
++Patch80010: secureblue-openpax-10.patch
++Patch80011: secureblue-openpax-11.patch
++Patch80012: secureblue-openpax-12.patch
++Patch80013: secureblue-openpax-13.patch
++Patch80014: secureblue-openpax-14.patch
++Patch80015: secureblue-openpax-15.patch
++Patch80016: secureblue-openpax-16.patch
++Patch80017: secureblue-openpax-17.patch
++Patch80018: secureblue-openpax-18.patch
++Patch80019: secureblue-openpax-19.patch
++Patch80020: secureblue-openpax-20.patch
++Patch80021: secureblue-openpax-21.patch
++Patch80022: secureblue-openpax-22.patch
++Patch80023: secureblue-openpax-23.patch
++Patch80024: secureblue-openpax-24.patch
++Patch80025: secureblue-openpax-25.patch
++Patch80026: secureblue-openpax-26.patch
++Patch80027: secureblue-openpax-27.patch
++Patch80028: secureblue-openpax-28.patch
++Patch80029: secureblue-openpax-29.patch
++
++Patch999998: secureblue-correct-spectre-flag-behavior.patch
++
+ # empty final patch to facilitate testing of kernel patches
+ Patch999999: linux-kernel-test.patch
+
+@@ -2106,6 +2138,10 @@ cp -a %{SOURCE1} .
+ ApplyOptionalPatch patch-%{patchversion}-redhat.patch
+ %endif
+
++for patch_file in "${RPM_SOURCE_DIR}"/secureblue-*.patch; do
++  ApplyPatch "${patch_file##*/}"
++done
++
+ ApplyOptionalPatch linux-kernel-test.patch
+
+ %{log_msg "End of patch applications"}
